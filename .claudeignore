@@ -1,0 +1,25 @@
+# Dane
+*.csv
+*.parquet
+*.xlsx
+*.db
+*.sqlite
+*.sqlite3
+data/
+dane/
+
+# Środowisko
+.venv/
+.env
+*.pyc
+__pycache__/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# IDE
+.vscode/
+.idea/
+
+# Git
+.git/
