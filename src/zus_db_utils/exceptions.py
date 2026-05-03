@@ -8,3 +8,11 @@ class SchemaValidationError(ZusDbUtilsError):
 
 class UnsupportedStrategyError(ZusDbUtilsError):
     """Backend nie wspiera zadanej strategii."""
+
+
+class CredentialError(ZusDbUtilsError):
+    """Blad zarzadzania credentialami (zly master password, korupcja pliku, itd.)."""
+
+
+class CredentialNotFoundError(CredentialError):
+    """Brak credentiala o podanej nazwie w storze."""
