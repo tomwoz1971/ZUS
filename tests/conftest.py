@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from collections.abc import Iterator
 
 import pytest
@@ -11,18 +12,37 @@ from sqlalchemy import (
     String,
     Table,
     create_engine,
+    text,
 )
 from sqlalchemy.engine import Engine
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.pool import StaticPool
 
+POSTGRES_URL_DEFAULT = "postgresql+psycopg2://zus_test:zus_test@localhost/zus_test"
 
-@pytest.fixture
-def engine() -> Iterator[Engine]:
-    eng = create_engine(
-        "sqlite://",
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-    )
+
+def _make_postgres_engine() -> Engine:
+    url = os.environ.get("ZUS_TEST_POSTGRES_URL", POSTGRES_URL_DEFAULT)
+    eng = create_engine(url)
+    try:
+        with eng.connect() as conn:
+            conn.execute(text("SELECT 1"))
+    except OperationalError as exc:
+        eng.dispose()
+        pytest.skip(f"Postgres niedostepny ({url}): {exc}")
+    return eng
+
+
+@pytest.fixture(params=["sqlite", "postgresql"])
+def engine(request: pytest.FixtureRequest) -> Iterator[Engine]:
+    if request.param == "sqlite":
+        eng = create_engine(
+            "sqlite://",
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool,
+        )
+    else:
+        eng = _make_postgres_engine()
     try:
         yield eng
     finally:
@@ -30,7 +50,7 @@ def engine() -> Iterator[Engine]:
 
 
 @pytest.fixture
-def metryka_table(engine: Engine) -> str:
+def metryka_table(engine: Engine) -> Iterator[str]:
     metadata = MetaData()
     Table(
         "metryka",
@@ -42,5 +62,9 @@ def metryka_table(engine: Engine) -> str:
         Column("data_od", DateTime, nullable=False),
         Column("data_do", DateTime, nullable=True),
     )
+    metadata.drop_all(engine)
     metadata.create_all(engine)
-    return "metryka"
+    try:
+        yield "metryka"
+    finally:
+        metadata.drop_all(engine)

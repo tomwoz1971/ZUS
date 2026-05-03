@@ -8,8 +8,10 @@ import pandas as pd
 from sqlalchemy import MetaData, Table, and_, select
 from sqlalchemy.engine import Engine
 
-from zus_db_utils.exceptions import SchemaValidationError
+from zus_db_utils.exceptions import SchemaValidationError, UnsupportedStrategyError
 from zus_db_utils.input_adapters import SupportedInput, normalize_input
+
+SUPPORTED_DIALECTS = frozenset({"sqlite", "postgresql"})
 
 
 @dataclass(frozen=True)
@@ -88,6 +90,12 @@ class IncrementalQuantity:
             lub w wejsciu brakuje ``keys``/``quantity_col``
         :raises ValueError: gdy w wejsciu sa zduplikowane klucze biznesowe
         """
+        if engine.dialect.name not in SUPPORTED_DIALECTS:
+            raise UnsupportedStrategyError(
+                f"Strategia incremental_quantity wspiera: {sorted(SUPPORTED_DIALECTS)} "
+                f"(jest: {engine.dialect.name})"
+            )
+
         df = normalize_input(data)
         self._validate_dataframe(df)
 
@@ -96,6 +104,7 @@ class IncrementalQuantity:
         self._validate_table(tbl)
 
         now = (as_of or datetime.now(timezone.utc)).replace(tzinfo=None)
+        use_row_lock = engine.dialect.name == "postgresql"
 
         inserted = 0
         closed = 0
@@ -104,11 +113,14 @@ class IncrementalQuantity:
         with engine.begin() as conn:
             for record in df.to_dict(orient="records"):
                 key_filter = and_(*[tbl.c[k] == record[k] for k in self.keys])
-                existing = conn.execute(
+                stmt = (
                     select(tbl.c[self.id_col], tbl.c[self.quantity_col])
                     .where(key_filter)
                     .where(tbl.c[self.valid_to_col].is_(None))
-                ).first()
+                )
+                if use_row_lock:
+                    stmt = stmt.with_for_update()
+                existing = conn.execute(stmt).first()
 
                 new_qty = record[self.quantity_col]
 
