@@ -32,3 +32,9 @@ Thumbs.db
 # Local env
 .env
 .env.local
+
+# Credentials (zus_db_utils.credentials)
+*.enc
+*.enc.bak
+*.salt
+credentials.*
