@@ -50,6 +50,23 @@ deklaruje wspierane strategie przez `supported_strategies: set[str]`.
 - Kolumny audit: `loaded_at`, `load_id`, `source_system`
 - Nazwy tabel stage: prefix `stg_`, fact: `fct_`, wymiary: `dim_`
 
+## Dokumentacja kodu
+
+Wszystkie publiczne funkcje, klasy i metody dokumentowane w stylu **Sphinx**
+(reStructuredText). Format: krótka pierwsza linia, opcjonalny rozszerzony
+opis, następnie pola `:param:`, `:returns:`, `:raises:`. Docstringi zwięzłe
+— bez powtarzania sygnatury i typów (są w adnotacjach).
+
+```python
+def normalize_input(data: SupportedInput) -> pd.DataFrame:
+    """Konwertuje wejście do DataFrame.
+
+    :param data: DataFrame, dict lub list[dict]
+    :returns: DataFrame z wierszami z ``data``
+    :raises TypeError: gdy typ wejścia nie jest wspierany
+    """
+```
+
 ## Dane wejściowe — 3 formaty
 
 1. `pandas.DataFrame` — domyślny, dla raportów < 1M wierszy
