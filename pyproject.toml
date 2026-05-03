@@ -1,0 +1,47 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "zus_db_utils"
+version = "0.1.0"
+description = "Zapis zagregowanych danych z pipeline'ow analitycznych do roznych backendow"
+requires-python = ">=3.9"
+dependencies = [
+    "sqlalchemy>=2.0,<3.0",
+    "pandas>=2.0",
+    "pydantic>=2.0,<3.0",
+    "tzdata; platform_system == 'Windows'",
+]
+
+[project.optional-dependencies]
+postgres = ["psycopg2-binary>=2.9"]
+mssql = ["pyodbc>=5.0"]
+parquet = ["pyarrow>=14.0"]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "ruff>=0.5",
+    "mypy>=1.10",
+    "testcontainers>=4.0",
+    "pandas-stubs",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/zus_db_utils"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM", "RUF"]
+
+[tool.mypy]
+python_version = "3.9"
+strict = true
+files = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
