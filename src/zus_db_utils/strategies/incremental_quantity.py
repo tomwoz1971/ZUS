@@ -11,7 +11,8 @@ from sqlalchemy.engine import Engine
 from zus_db_utils.exceptions import SchemaValidationError, UnsupportedStrategyError
 from zus_db_utils.input_adapters import SupportedInput, normalize_input
 
-SUPPORTED_DIALECTS = frozenset({"sqlite", "postgresql"})
+SUPPORTED_DIALECTS = frozenset({"sqlite", "postgresql", "mssql"})
+LOCKING_DIALECTS = frozenset({"postgresql", "mssql"})
 
 
 @dataclass(frozen=True)
@@ -104,7 +105,7 @@ class IncrementalQuantity:
         self._validate_table(tbl)
 
         now = (as_of or datetime.now(timezone.utc)).replace(tzinfo=None)
-        use_row_lock = engine.dialect.name == "postgresql"
+        use_row_lock = engine.dialect.name in LOCKING_DIALECTS
 
         inserted = 0
         closed = 0

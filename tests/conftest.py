@@ -15,25 +15,27 @@ from sqlalchemy import (
     text,
 )
 from sqlalchemy.engine import Engine
-from sqlalchemy.exc import OperationalError
 from sqlalchemy.pool import StaticPool
 
 POSTGRES_URL_DEFAULT = "postgresql+psycopg2://zus_test:zus_test@localhost/zus_test"
+MSSQL_URL_DEFAULT = (
+    "mssql+pyodbc://sa:ZusTest123!@localhost:1433/zus_test"
+    "?driver=ODBC+Driver+18+for+SQL+Server&TrustServerCertificate=yes"
+)
 
 
-def _make_postgres_engine() -> Engine:
-    url = os.environ.get("ZUS_TEST_POSTGRES_URL", POSTGRES_URL_DEFAULT)
+def _probe_engine(url: str, label: str) -> Engine:
     eng = create_engine(url)
     try:
         with eng.connect() as conn:
             conn.execute(text("SELECT 1"))
-    except OperationalError as exc:
+    except Exception as exc:
         eng.dispose()
-        pytest.skip(f"Postgres niedostepny ({url}): {exc}")
+        pytest.skip(f"{label} niedostepny ({url}): {exc}")
     return eng
 
 
-@pytest.fixture(params=["sqlite", "postgresql"])
+@pytest.fixture(params=["sqlite", "postgresql", "mssql"])
 def engine(request: pytest.FixtureRequest) -> Iterator[Engine]:
     if request.param == "sqlite":
         eng = create_engine(
@@ -41,8 +43,16 @@ def engine(request: pytest.FixtureRequest) -> Iterator[Engine]:
             connect_args={"check_same_thread": False},
             poolclass=StaticPool,
         )
+    elif request.param == "postgresql":
+        eng = _probe_engine(
+            os.environ.get("ZUS_TEST_POSTGRES_URL", POSTGRES_URL_DEFAULT),
+            "Postgres",
+        )
     else:
-        eng = _make_postgres_engine()
+        eng = _probe_engine(
+            os.environ.get("ZUS_TEST_MSSQL_URL", MSSQL_URL_DEFAULT),
+            "MSSQL",
+        )
     try:
         yield eng
     finally:

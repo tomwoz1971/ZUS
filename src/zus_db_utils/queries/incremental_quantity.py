@@ -14,7 +14,7 @@ from zus_db_utils.exceptions import SchemaValidationError, UnsupportedStrategyEr
 Step = Union[Literal["hour", "day", "week"], timedelta]
 
 LOCAL_TZ = ZoneInfo("Europe/Warsaw")
-SUPPORTED_DIALECTS = frozenset({"sqlite", "postgresql"})
+SUPPORTED_DIALECTS = frozenset({"sqlite", "postgresql", "mssql"})
 
 
 def read_current(
@@ -85,14 +85,14 @@ def read_snapshots(
     _ensure_supported_dialect(engine)
     _reflect_and_validate(engine, table, keys, quantity_col, valid_from_col, valid_to_col)
 
-    if engine.dialect.name == "sqlite":
-        sql, params = _snapshots_sql_sqlite(
-            table, keys, quantity_col, valid_from_col, valid_to_col, start, end, step
-        )
-    else:
-        sql, params = _snapshots_sql_postgresql(
-            table, keys, quantity_col, valid_from_col, valid_to_col, start, end, step
-        )
+    builder_by_dialect = {
+        "sqlite": _snapshots_sql_sqlite,
+        "postgresql": _snapshots_sql_postgresql,
+        "mssql": _snapshots_sql_mssql,
+    }
+    sql, params = builder_by_dialect[engine.dialect.name](
+        table, keys, quantity_col, valid_from_col, valid_to_col, start, end, step
+    )
 
     with engine.connect() as conn:
         df = pd.read_sql_query(sql, conn, params=params)
@@ -240,6 +240,45 @@ def _snapshots_sql_postgresql(
     return sql, params
 
 
+def _snapshots_sql_mssql(
+    table: str,
+    keys: list[str],
+    quantity_col: str,
+    valid_from_col: str,
+    valid_to_col: str,
+    start: datetime,
+    end: datetime,
+    step: Step,
+) -> tuple[TextClause, dict[str, Any]]:
+    secs = _step_to_seconds(step)
+    key_cols = ", ".join(f"t.{k}" for k in keys)
+
+    sql = text(f"""
+        WITH grid (ts) AS (
+            SELECT CAST(:start_dt AS DATETIME2) AS ts
+            UNION ALL
+            SELECT DATEADD(SECOND, :step_secs, ts) FROM grid
+            WHERE DATEADD(SECOND, :step_secs, ts) <= CAST(:end_dt AS DATETIME2)
+        )
+        SELECT
+            {key_cols},
+            g.ts AS ts,
+            t.{quantity_col} AS {quantity_col}
+        FROM grid g
+        JOIN {table} t
+          ON t.{valid_from_col} <= g.ts
+         AND (t.{valid_to_col} IS NULL OR t.{valid_to_col} > g.ts)
+        ORDER BY {key_cols}, g.ts
+        OPTION (MAXRECURSION 0)
+    """)
+    params: dict[str, Any] = {
+        "start_dt": _to_naive_utc(start),
+        "end_dt": _to_naive_utc(end),
+        "step_secs": secs,
+    }
+    return sql, params
+
+
 def _step_to_sqlite_modifier(step: Step) -> str:
     if isinstance(step, timedelta):
         secs = int(step.total_seconds())
@@ -267,6 +306,21 @@ def _step_to_postgres_interval(step: Step) -> str:
         return "1 day"
     if step == "week":
         return "7 days"
+    raise ValueError(f"Nieobslugiwany step: {step!r}")
+
+
+def _step_to_seconds(step: Step) -> int:
+    if isinstance(step, timedelta):
+        secs = int(step.total_seconds())
+        if secs <= 0:
+            raise ValueError("step (timedelta) musi byc dodatni")
+        return secs
+    if step == "hour":
+        return 3600
+    if step == "day":
+        return 86400
+    if step == "week":
+        return 7 * 86400
     raise ValueError(f"Nieobslugiwany step: {step!r}")
 
 
