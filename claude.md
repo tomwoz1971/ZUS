@@ -28,7 +28,8 @@ Dwuwarstwowa:
 1. **Backend** (`backends/`) — jak się łączyć i jak fizycznie pisać
    do konkretnego targetu (Postgres, MSSQL, SQLite, CSV, Parquet).
 2. **Strategy** (`strategies/`) — jaką logikę zastosować
-   (append, upsert, full refresh, SCD2, watermark incremental).
+   (append, upsert, full refresh, SCD2, watermark incremental,
+   `incremental_quantity` — patrz osobna sekcja niżej).
 
 Fasada `AggWriter` w `core.py` łączy jedno z drugim:
 
@@ -48,6 +49,23 @@ deklaruje wspierane strategie przez `supported_strategies: set[str]`.
 - Kolumny techniczne SCD2: `valid_from`, `valid_to`, `is_current`, `row_hash`
 - Kolumny audit: `loaded_at`, `load_id`, `source_system`
 - Nazwy tabel stage: prefix `stg_`, fact: `fct_`, wymiary: `dim_`
+
+## Dokumentacja kodu
+
+Wszystkie publiczne funkcje, klasy i metody dokumentowane w stylu **Sphinx**
+(reStructuredText). Format: krótka pierwsza linia, opcjonalny rozszerzony
+opis, następnie pola `:param:`, `:returns:`, `:raises:`. Docstringi zwięzłe
+— bez powtarzania sygnatury i typów (są w adnotacjach).
+
+```python
+def normalize_input(data: SupportedInput) -> pd.DataFrame:
+    """Konwertuje wejście do DataFrame.
+
+    :param data: DataFrame, dict lub list[dict]
+    :returns: DataFrame z wierszami z ``data``
+    :raises TypeError: gdy typ wejścia nie jest wspierany
+    """
+```
 
 ## Dane wejściowe — 3 formaty
 
@@ -104,6 +122,145 @@ ruff check src tests
 ruff format src tests
 mypy src
 ```
+
+## Strategia `incremental_quantity`
+
+Wyspecjalizowany wariant SCD2 dla tabel typu „klucz biznesowy + jeden
+pomiar liczbowy w czasie". Używana, gdy skrypt periodycznie zbiera
+wartości metryki dla zestawu obiektów i chcemy historię zmian bez
+duplikatów dla niezmieniającej się wartości.
+
+### Schemat tabeli docelowej
+
+Tabela jest **przygotowywana w bazie z góry** (DDL poza modułem).
+Wymagane kolumny:
+
+- kolumny klucza biznesowego `a1, …, an` (typy dowolne, łącznie PK lub
+  unique constraint nieobowiązkowy — strategia sama pilnuje unikalności
+  „otwartego" wiersza)
+- `ilosc` — kolumna pomiaru (nazwa konfigurowalna)
+- `data_od` `DATETIME NOT NULL` — początek ważności
+- `data_do` `DATETIME NULL` — koniec ważności (NULL = aktualnie obowiązujący)
+- `id` — PK, generowany przez bazę (`IDENTITY` / `SERIAL` / `INTEGER PRIMARY KEY AUTOINCREMENT`)
+
+Walidacja schematu jest **twarda**: jeśli któraś z kolumn
+`ilosc/data_od/data_do/id` nie istnieje lub ma niezgodny typ →
+`SchemaValidationError` przed jakimkolwiek zapisem.
+
+### API
+
+```python
+IncrementalQuantity(
+    keys: list[str],                      # kolumny klucza biznesowego
+    quantity_col: str = "ilosc",
+    valid_from_col: str = "data_od",
+    valid_to_col: str = "data_do",
+    id_col: str = "id",
+    tolerance: Decimal | float | None = None,  # tolerancja porównania
+)
+```
+
+Wejście: `DataFrame` lub pojedynczy wiersz (`dict`/`list[dict]`)
+o kolumnach `keys + [quantity_col]`. Inne kolumny → ignorowane
+z warningiem (jawne `extra="forbid"` opcjonalnie w configu).
+
+### Algorytm zapisu (per wiersz wejścia)
+
+1. Pobierz aktualnie otwarty rekord dla danego klucza
+   (`WHERE keys=… AND data_do IS NULL`) z lockiem:
+   - PostgreSQL/MSSQL: `SELECT … FOR UPDATE` / `WITH (UPDLOCK, HOLDLOCK)`
+   - SQLite: cała operacja w `BEGIN IMMEDIATE` (brak row locków)
+2. Jeśli **brak otwartego rekordu** → `INSERT` nowego z `data_od = now`,
+   `data_do = NULL`.
+3. Jeśli **otwarty rekord istnieje**:
+   - porównaj `ilosc` (strict `=`, lub `abs(new − old) <= tolerance`
+     gdy `tolerance` ustawione)
+   - **równe** → nic nie rób, przejdź do następnego wiersza
+   - **różne** → `UPDATE … SET data_do = now WHERE id = <id>`,
+     następnie `INSERT` nowego rekordu z `data_od = now`, `data_do = NULL`
+
+### Źródło czasu „now"
+
+Generowane **client-side** (`datetime.utcnow()` na maszynie skryptu),
+**zapisywane w bazie jako UTC**. Tę samą wartość `now` używamy
+w obrębie jednego `write()` dla wszystkich wierszy (spójny snapshot
+czasowy całego batcha). Override przez parametr `as_of: datetime | None`
+do backfilli/testów.
+
+### Transakcyjność i obsługa duplikatów wejścia
+
+- Cały `write()` w jednej transakcji (rollback przy błędzie dowolnego wiersza).
+- Duplikaty kluczy w jednym DataFrame (ten sam klucz w dwóch wierszach):
+  **fail-fast `ValueError`** — wymagamy unikalności kluczy w wejściu.
+
+### Wspierane backendy
+
+Tylko: **PostgreSQL, MSSQL, SQLite**. Backend deklaruje to w
+`supported_strategies`. CSV/Parquet/inne → `UnsupportedStrategyError`.
+
+## Procedury odczytu dla `incremental_quantity`
+
+Wszystkie w module `queries/incremental_quantity.py`. Walidacja
+schematu twarda (jak przy zapisie). Wszystkie zwracają `pd.DataFrame`
+z kolumnami czasu **skonwertowanymi z UTC do `Europe/Warsaw`** (tz-aware).
+
+### `read_current(table, keys) -> DataFrame`
+
+Aktualnie obowiązujące ilości — wszystkie rekordy z `data_do IS NULL`.
+
+- Kolumny wynikowe: `keys + [quantity_col, valid_from_col]` (bez `id`).
+- `valid_from_col` zwracany w `Europe/Warsaw`.
+
+### `read_snapshots(table, keys, start, end, step) -> DataFrame`
+
+Snapshot wartości **na koniec każdego kroku** w przedziale `[start, end]`
+(LOCF — wartość obowiązująca dokładnie na timestamp końca kroku).
+
+```python
+read_snapshots(
+    table: str,
+    keys: list[str],
+    start: datetime,           # naive UTC lub aware
+    end: datetime,
+    step: Literal["hour", "day", "week"] | timedelta,
+) -> pd.DataFrame              # kolumny: keys + [ts, ilosc]
+```
+
+- `ts` = koniec kroku (włącznie).
+- Wartość w kroku: rekord, dla którego `data_od <= ts < COALESCE(data_do, '9999-12-31')`.
+- Klucze, dla których w danym kroku nie było żadnego rekordu → wiersz pomijany
+  (nie ma `NULL`-ów dla nieistniejących).
+- Siatka czasu generowana **server-side**:
+  - Postgres: `generate_series(start, end, step)`
+  - SQLite/MSSQL: rekurencyjny CTE (MSSQL z `OPTION (MAXRECURSION 0)` jeśli > 100 kroków)
+
+### `read_increments(table, keys, start, end, step) -> DataFrame`
+
+Przyrost = `snapshot(koniec_kroku_i) − snapshot(koniec_kroku_{i-1})`
+dla każdego klucza i każdego kroku.
+
+```python
+read_increments(
+    table: str,
+    keys: list[str],
+    start: datetime,
+    end: datetime,
+    step: Literal["hour", "day", "week"] | timedelta,
+) -> pd.DataFrame              # kolumny: keys + [ts, przyrost]
+```
+
+- Pierwszy krok dla każdego klucza ma `przyrost = NULL` (brak baseline'u).
+- Implementacja: `read_snapshots` + okno `LAG()` po `keys` po stronie DB.
+
+## Konwencja stref czasowych
+
+- **W bazie**: timestampy zapisywane jako UTC (typ `DATETIME` bez tz
+  w MSSQL/SQLite, `TIMESTAMP WITHOUT TIME ZONE` w Postgres — interpretowane
+  jako UTC po stronie aplikacji).
+- **Generowanie `now` w zapisie**: `datetime.utcnow()` w skrypcie.
+- **W odczycie**: timestampy zwracane jako tz-aware w `Europe/Warsaw`
+  (konwersja w warstwie query, nie w bazie).
+- Nie używamy lokalnego czasu serwera DB — zegar bazy nie jest źródłem prawdy.
 
 ## Czego NIE robić
 

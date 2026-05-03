@@ -8,16 +8,8 @@
 data/
 dane/
 
-# Credentials - NIGDY do kontekstu
-*.enc
-*.enc.bak
-*.salt
-credentials.*
-.credentials/
-
 # Środowisko
 .venv/
-venv/
 .env
 *.pyc
 __pycache__/
@@ -25,18 +17,9 @@ __pycache__/
 .mypy_cache/
 .ruff_cache/
 
-# Build
-build/
-dist/
-*.egg-info/
-
 # IDE
 .vscode/
 .idea/
 
 # Git
 .git/
-
-# Notebooki (zwykle duże i z outputami)
-*.ipynb
-.ipynb_checkpoints/
