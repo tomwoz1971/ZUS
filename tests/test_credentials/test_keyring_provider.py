@@ -96,3 +96,39 @@ def test_overwrite_does_not_duplicate_in_list(store: KeyringStore) -> None:
     store.set("a", Credential(username="u", password="p2"))
     assert store.list_entries() == ["a"]
     assert store.get("a").password.get_secret_value() == "p2"
+
+
+class TestExplicitBackendInjection:
+    def test_explicit_backend_is_used_for_set_and_get(self) -> None:
+        explicit = _MemoryKeyring()
+        store = KeyringStore(backend=explicit)
+        store.set("a", Credential(username="u", password="p"))
+
+        assert store.get("a").username == "u"
+        assert explicit.get_password("zus_db_utils", "a") is not None
+
+    def test_explicit_backend_isolated_from_global_keyring(self) -> None:
+        explicit = _MemoryKeyring()
+        store = KeyringStore(backend=explicit)
+        store.set("a", Credential(username="u", password="p"))
+
+        global_backend = _MemoryKeyring()
+        backup = keyring.get_keyring()
+        keyring.set_keyring(global_backend)
+        try:
+            assert global_backend.get_password("zus_db_utils", "a") is None
+            assert store.get("a").username == "u"
+        finally:
+            keyring.set_keyring(backup)
+
+    def test_explicit_backend_full_roundtrip(self) -> None:
+        explicit = _MemoryKeyring()
+        store = KeyringStore(backend=explicit)
+        store.set("a", Credential(username="u", password="p"))
+        store.set("b", Credential(username="v", password="q"))
+
+        assert store.list_entries() == ["a", "b"]
+        store.delete("a")
+        assert store.list_entries() == ["b"]
+        with pytest.raises(CredentialNotFoundError):
+            store.get("a")
