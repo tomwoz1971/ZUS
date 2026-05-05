@@ -18,7 +18,7 @@ class SQLiteBackend(Backend):
     """
 
     name: ClassVar[str] = "sqlite"
-    supported_strategies: ClassVar[frozenset[str]] = frozenset({"incremental_quantity"})
+    supported_strategies: ClassVar[frozenset[str]] = frozenset({"incremental_quantity", "append"})
 
     def __init__(self, path: str | None = None) -> None:
         if path is None:

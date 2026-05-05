@@ -11,10 +11,8 @@ from zus_db_utils.backends import (
 )
 from zus_db_utils.credentials import Credential, CredentialStore
 from zus_db_utils.exceptions import UnsupportedStrategyError
-from zus_db_utils.strategies.incremental_quantity import (
-    IncrementalQuantity,
-    WriteResult,
-)
+from zus_db_utils.strategies.append import Append
+from zus_db_utils.strategies.incremental_quantity import IncrementalQuantity
 
 BackendSpec = Union[str, Backend]
 CredentialSpec = Union[str, Credential, None]
@@ -27,6 +25,7 @@ BACKEND_REGISTRY: dict[str, type[Backend]] = {
 
 STRATEGY_REGISTRY: dict[str, type[Any]] = {
     "incremental_quantity": IncrementalQuantity,
+    "append": Append,
 }
 
 
@@ -77,9 +76,7 @@ class AggWriter:
         **strategy_kwargs: Any,
     ) -> None:
         resolved_credential = self._resolve_credential(credential, credential_store)
-        self.backend = self._resolve_backend(
-            backend, resolved_credential, backend_kwargs or {}
-        )
+        self.backend = self._resolve_backend(backend, resolved_credential, backend_kwargs or {})
 
         if not self.backend.supports(strategy):
             raise UnsupportedStrategyError(
@@ -89,19 +86,20 @@ class AggWriter:
 
         if strategy not in STRATEGY_REGISTRY:
             raise KeyError(
-                f"Nieznana strategia {strategy!r}; "
-                f"zarejestrowane: {sorted(STRATEGY_REGISTRY)}"
+                f"Nieznana strategia {strategy!r}; zarejestrowane: {sorted(STRATEGY_REGISTRY)}"
             )
         self.strategy = STRATEGY_REGISTRY[strategy](**strategy_kwargs)
         self._strategy_name = strategy
 
-    def write(self, data: Any, table: str, **kwargs: Any) -> WriteResult:
+    def write(self, data: Any, table: str, **kwargs: Any) -> Any:
         """Wywołuje ``strategy.write(backend.engine, data, table, **kwargs)``.
 
         Pozostale kwargs (np. ``as_of``) przekazywane bez zmian
-        do strategii.
+        do strategii. Zwracany typ zalezy od strategii (np.
+        ``WriteResult`` dla ``incremental_quantity``, ``AppendResult``
+        dla ``append``).
         """
-        return self.strategy.write(self.backend.engine, data, table, **kwargs)  # type: ignore[no-any-return]
+        return self.strategy.write(self.backend.engine, data, table, **kwargs)
 
     def dispose(self) -> None:
         """Zamyka pule polaczen backendu."""
@@ -137,8 +135,7 @@ class AggWriter:
             return backend
         if backend not in BACKEND_REGISTRY:
             raise KeyError(
-                f"Nieznany backend {backend!r}; "
-                f"zarejestrowane: {sorted(BACKEND_REGISTRY)}"
+                f"Nieznany backend {backend!r}; zarejestrowane: {sorted(BACKEND_REGISTRY)}"
             )
         cls = BACKEND_REGISTRY[backend]
         if cls is SQLiteBackend:

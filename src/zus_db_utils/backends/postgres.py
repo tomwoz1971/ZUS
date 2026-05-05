@@ -29,7 +29,7 @@ class PostgresBackend(Backend):
     """
 
     name: ClassVar[str] = "postgres"
-    supported_strategies: ClassVar[frozenset[str]] = frozenset({"incremental_quantity"})
+    supported_strategies: ClassVar[frozenset[str]] = frozenset({"incremental_quantity", "append"})
 
     def __init__(
         self,
@@ -45,8 +45,7 @@ class PostgresBackend(Backend):
         resolved_db = database or meta.get("database")
         if not resolved_host or not resolved_db:
             raise ValueError(
-                "PostgresBackend wymaga 'host' i 'database' w credential.metadata "
-                "lub jako kwargs"
+                "PostgresBackend wymaga 'host' i 'database' w credential.metadata lub jako kwargs"
             )
 
         url = (

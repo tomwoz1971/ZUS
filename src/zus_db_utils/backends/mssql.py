@@ -45,7 +45,7 @@ class MSSQLBackend(Backend):
     """
 
     name: ClassVar[str] = "mssql"
-    supported_strategies: ClassVar[frozenset[str]] = frozenset({"incremental_quantity"})
+    supported_strategies: ClassVar[frozenset[str]] = frozenset({"incremental_quantity", "append"})
 
     def __init__(
         self,
@@ -65,8 +65,7 @@ class MSSQLBackend(Backend):
         resolved_db = database or meta.get("database")
         if not resolved_host or not resolved_db:
             raise ValueError(
-                "MSSQLBackend wymaga 'host' i 'database' w credential.metadata "
-                "lub jako kwargs"
+                "MSSQLBackend wymaga 'host' i 'database' w credential.metadata lub jako kwargs"
             )
 
         params = f"driver={quote_plus(driver)}"
