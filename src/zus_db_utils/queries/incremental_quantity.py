@@ -25,6 +25,7 @@ def read_current(
     quantity_col: str = "ilosc",
     valid_from_col: str = "data_od",
     valid_to_col: str = "data_do",
+    filters: dict[str, Any] | None = None,
 ) -> pd.DataFrame:
     """Zwraca aktualnie obowiazujace ilosci (rekordy z ``valid_to IS NULL``).
 
@@ -34,16 +35,29 @@ def read_current(
     :param quantity_col: kolumna pomiaru
     :param valid_from_col: kolumna poczatku waznosci
     :param valid_to_col: kolumna konca waznosci
+    :param filters: opcjonalne filtry ``{kolumna: wartosc}``; skalar → ``=``,
+        lista/krotka → ``IN``
     :returns: DataFrame z kolumnami ``keys + [quantity_col, valid_from_col]``;
         ``valid_from_col`` skonwertowany z UTC do ``Europe/Warsaw``
     :raises SchemaValidationError: gdy tabela nie ma wymaganych kolumn
     :raises UnsupportedStrategyError: gdy dialekt nie jest wspierany
+    :raises ValueError: gdy filters odwoluje sie do nieistniejacych kolumn
     """
     _ensure_supported_dialect(engine)
     tbl = _reflect_and_validate(engine, table, keys, quantity_col, valid_from_col, valid_to_col)
 
     cols = [tbl.c[k] for k in keys] + [tbl.c[quantity_col], tbl.c[valid_from_col]]
     stmt = select(*cols).where(tbl.c[valid_to_col].is_(None))
+
+    if filters:
+        _validate_filters(filters, {c.name for c in tbl.columns})
+        for col, val in filters.items():
+            if isinstance(val, (list, tuple)):
+                if not val:
+                    raise ValueError(f"Filtr IN dla kolumny {col!r} nie moze byc pusta lista")
+                stmt = stmt.where(tbl.c[col].in_(val))
+            else:
+                stmt = stmt.where(tbl.c[col] == val)
 
     with engine.connect() as conn:
         df = pd.read_sql_query(stmt, conn)
@@ -63,6 +77,7 @@ def read_snapshots(
     quantity_col: str = "ilosc",
     valid_from_col: str = "data_od",
     valid_to_col: str = "data_do",
+    filters: dict[str, Any] | None = None,
 ) -> pd.DataFrame:
     """Zwraca snapshoty wartosci na koniec kazdego kroku w ``[start, end]``.
 
@@ -76,14 +91,21 @@ def read_snapshots(
     :param start: poczatek siatki czasu (UTC; naive lub aware)
     :param end: koniec siatki (wlacznie)
     :param step: ``"hour" | "day" | "week"`` lub ``timedelta``
+    :param filters: opcjonalne filtry ``{kolumna: wartosc}``; skalar → ``=``,
+        lista/krotka → ``IN``
     :returns: DataFrame z kolumnami ``keys + ["ts", quantity_col]``;
         ``ts`` w tz ``Europe/Warsaw``
     :raises SchemaValidationError: gdy tabela nie ma wymaganych kolumn
     :raises UnsupportedStrategyError: gdy dialekt nie jest wspierany
-    :raises ValueError: gdy ``step`` jest niepoprawny
+    :raises ValueError: gdy ``step`` jest niepoprawny lub filters odwoluje sie
+        do nieistniejacych kolumn
     """
     _ensure_supported_dialect(engine)
-    _reflect_and_validate(engine, table, keys, quantity_col, valid_from_col, valid_to_col)
+    tbl = _reflect_and_validate(engine, table, keys, quantity_col, valid_from_col, valid_to_col)
+
+    resolved_filters = filters or {}
+    if resolved_filters:
+        _validate_filters(resolved_filters, {c.name for c in tbl.columns})
 
     builder_by_dialect = {
         "sqlite": _snapshots_sql_sqlite,
@@ -91,7 +113,8 @@ def read_snapshots(
         "mssql": _snapshots_sql_mssql,
     }
     sql, params = builder_by_dialect[engine.dialect.name](
-        table, keys, quantity_col, valid_from_col, valid_to_col, start, end, step
+        table, keys, quantity_col, valid_from_col, valid_to_col, start, end, step,
+        resolved_filters,
     )
 
     with engine.connect() as conn:
@@ -112,12 +135,15 @@ def read_increments(
     quantity_col: str = "ilosc",
     valid_from_col: str = "data_od",
     valid_to_col: str = "data_do",
+    filters: dict[str, Any] | None = None,
 ) -> pd.DataFrame:
     """Zwraca przyrost ``ilosc`` wzgledem poprzedniego kroku per klucz.
 
     Implementacja: :func:`read_snapshots` + ``DataFrame.groupby(keys).diff()``.
     Pierwszy krok kazdego klucza ma ``przyrost = NaN`` (brak baseline'u).
 
+    :param filters: opcjonalne filtry ``{kolumna: wartosc}``; skalar → ``=``,
+        lista/krotka → ``IN``
     :returns: DataFrame z kolumnami ``keys + ["ts", "przyrost"]``
     """
     snaps = read_snapshots(
@@ -130,6 +156,7 @@ def read_increments(
         quantity_col=quantity_col,
         valid_from_col=valid_from_col,
         valid_to_col=valid_to_col,
+        filters=filters,
     )
     snaps = snaps.sort_values([*keys, "ts"]).reset_index(drop=True)
     snaps["przyrost"] = snaps.groupby(keys, sort=False)[quantity_col].diff()
@@ -166,6 +193,40 @@ def _reflect_and_validate(
     return tbl
 
 
+def _validate_filters(filters: dict[str, Any], valid_cols: set[str]) -> None:
+    """Sprawdza, ze wszystkie klucze filtrow istnieja jako kolumny tabeli."""
+    unknown = set(filters) - valid_cols
+    if unknown:
+        raise ValueError(f"Nieznane kolumny w filters: {sorted(unknown)}")
+
+
+def _build_filter_sql(
+    filters: dict[str, Any], alias: str = "t"
+) -> tuple[str, dict[str, Any]]:
+    """Buduje fragment SQL WHERE i parametry dla filtrow rownosci/IN.
+
+    :returns: krotka ``(fragment_sql, params)``; fragment zaczyna sie od
+        ``AND`` jesli filtry niepuste, inaczej pusty string
+    :raises ValueError: gdy lista wartosci IN jest pusta
+    """
+    parts: list[str] = []
+    params: dict[str, Any] = {}
+    for col, val in filters.items():
+        param_key = f"f_{col}"
+        if isinstance(val, (list, tuple)):
+            if not val:
+                raise ValueError(f"Filtr IN dla kolumny {col!r} nie moze byc pusta lista")
+            placeholders = ", ".join(f":{param_key}_{i}" for i in range(len(val)))
+            parts.append(f"{alias}.{col} IN ({placeholders})")
+            for i, v in enumerate(val):
+                params[f"{param_key}_{i}"] = v
+        else:
+            parts.append(f"{alias}.{col} = :{param_key}")
+            params[param_key] = val
+    fragment = ("\nAND " + "\nAND ".join(parts)) if parts else ""
+    return fragment, params
+
+
 def _snapshots_sql_sqlite(
     table: str,
     keys: list[str],
@@ -175,9 +236,11 @@ def _snapshots_sql_sqlite(
     start: datetime,
     end: datetime,
     step: Step,
+    filters: dict[str, Any],
 ) -> tuple[TextClause, dict[str, Any]]:
     modifier = _step_to_sqlite_modifier(step)
     key_cols = ", ".join(f"t.{k}" for k in keys)
+    filter_clause, filter_params = _build_filter_sql(filters)
 
     sql = text(f"""
         WITH RECURSIVE grid(ts) AS (
@@ -194,12 +257,14 @@ def _snapshots_sql_sqlite(
         JOIN {table} t
           ON julianday(t.{valid_from_col}) <= julianday(g.ts)
          AND (t.{valid_to_col} IS NULL OR julianday(t.{valid_to_col}) > julianday(g.ts))
+        {filter_clause}
         ORDER BY {key_cols}, g.ts
     """)
     params: dict[str, Any] = {
         "start_dt": _to_iso_utc(start),
         "end_dt": _to_iso_utc(end),
         "step_mod": modifier,
+        **filter_params,
     }
     return sql, params
 
@@ -213,9 +278,11 @@ def _snapshots_sql_postgresql(
     start: datetime,
     end: datetime,
     step: Step,
+    filters: dict[str, Any],
 ) -> tuple[TextClause, dict[str, Any]]:
     interval = _step_to_postgres_interval(step)
     key_cols = ", ".join(f"t.{k}" for k in keys)
+    filter_clause, filter_params = _build_filter_sql(filters)
 
     sql = text(f"""
         SELECT
@@ -230,12 +297,14 @@ def _snapshots_sql_postgresql(
         JOIN {table} t
           ON t.{valid_from_col} <= g.ts
          AND (t.{valid_to_col} IS NULL OR t.{valid_to_col} > g.ts)
+        {filter_clause}
         ORDER BY {key_cols}, g.ts
     """)
     params: dict[str, Any] = {
         "start_dt": _to_naive_utc(start),
         "end_dt": _to_naive_utc(end),
         "step_interval": interval,
+        **filter_params,
     }
     return sql, params
 
@@ -249,9 +318,11 @@ def _snapshots_sql_mssql(
     start: datetime,
     end: datetime,
     step: Step,
+    filters: dict[str, Any],
 ) -> tuple[TextClause, dict[str, Any]]:
     secs = _step_to_seconds(step)
     key_cols = ", ".join(f"t.{k}" for k in keys)
+    filter_clause, filter_params = _build_filter_sql(filters)
 
     sql = text(f"""
         WITH grid (ts) AS (
@@ -268,6 +339,7 @@ def _snapshots_sql_mssql(
         JOIN {table} t
           ON t.{valid_from_col} <= g.ts
          AND (t.{valid_to_col} IS NULL OR t.{valid_to_col} > g.ts)
+        {filter_clause}
         ORDER BY {key_cols}, g.ts
         OPTION (MAXRECURSION 0)
     """)
@@ -275,6 +347,7 @@ def _snapshots_sql_mssql(
         "start_dt": _to_naive_utc(start),
         "end_dt": _to_naive_utc(end),
         "step_secs": secs,
+        **filter_params,
     }
     return sql, params
 

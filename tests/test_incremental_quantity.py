@@ -298,6 +298,109 @@ class TestReadSnapshots:
         assert len(df) == 3
 
 
+class TestFilters:
+    def test_read_current_filter_by_equality(
+        self, engine: Engine, metryka_table: str
+    ) -> None:
+        strat = IncrementalQuantity(keys=["a1", "a2"])
+        strat.write(
+            engine,
+            pd.DataFrame([
+                {"a1": "x", "a2": "y", "ilosc": 10},
+                {"a1": "x", "a2": "z", "ilosc": 20},
+            ]),
+            metryka_table,
+            as_of=T0,
+        )
+
+        df = read_current(engine, metryka_table, keys=["a1", "a2"], filters={"a2": "y"})
+
+        assert len(df) == 1
+        assert df.iloc[0]["a2"] == "y"
+
+    def test_read_current_filter_by_in(
+        self, engine: Engine, metryka_table: str
+    ) -> None:
+        strat = IncrementalQuantity(keys=["a1", "a2"])
+        strat.write(
+            engine,
+            pd.DataFrame([
+                {"a1": "x", "a2": "y", "ilosc": 10},
+                {"a1": "x", "a2": "z", "ilosc": 20},
+                {"a1": "x", "a2": "w", "ilosc": 30},
+            ]),
+            metryka_table,
+            as_of=T0,
+        )
+
+        df = read_current(
+            engine, metryka_table, keys=["a1", "a2"], filters={"a2": ["y", "z"]}
+        )
+
+        assert len(df) == 2
+        assert set(df["a2"].tolist()) == {"y", "z"}
+
+    def test_read_current_unknown_filter_col_raises(
+        self, engine: Engine, metryka_table: str
+    ) -> None:
+        with pytest.raises(ValueError, match="Nieznane kolumny w filters"):
+            read_current(
+                engine, metryka_table, keys=["a1", "a2"], filters={"nieistnieje": 1}
+            )
+
+    def test_read_snapshots_filter_limits_keys(
+        self, engine: Engine, metryka_table: str
+    ) -> None:
+        strat = IncrementalQuantity(keys=["a1", "a2"])
+        strat.write(
+            engine,
+            pd.DataFrame([
+                {"a1": "x", "a2": "y", "ilosc": 10},
+                {"a1": "x", "a2": "z", "ilosc": 20},
+            ]),
+            metryka_table,
+            as_of=T0,
+        )
+
+        df = read_snapshots(
+            engine, metryka_table, keys=["a1", "a2"],
+            start=T0, end=T1, step="day",
+            filters={"a2": "y"},
+        )
+
+        assert all(df["a2"] == "y")
+
+    def test_read_increments_filter_passes_through(
+        self, engine: Engine, metryka_table: str
+    ) -> None:
+        strat = IncrementalQuantity(keys=["a1", "a2"])
+        strat.write(
+            engine,
+            pd.DataFrame([
+                {"a1": "x", "a2": "y", "ilosc": 10},
+                {"a1": "x", "a2": "z", "ilosc": 50},
+            ]),
+            metryka_table,
+            as_of=T0,
+        )
+
+        df = read_increments(
+            engine, metryka_table, keys=["a1", "a2"],
+            start=T0, end=T1, step="day",
+            filters={"a2": "y"},
+        )
+
+        assert all(df["a2"] == "y")
+
+    def test_filter_in_empty_list_raises(
+        self, engine: Engine, metryka_table: str
+    ) -> None:
+        with pytest.raises(ValueError, match="pusta lista"):
+            read_current(
+                engine, metryka_table, keys=["a1", "a2"], filters={"a2": []}
+            )
+
+
 class TestReadIncrements:
     def test_first_step_is_nan_then_diffs(
         self, engine: Engine, metryka_table: str
