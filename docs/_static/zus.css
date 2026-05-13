@@ -1,0 +1,59 @@
+/* ==========================================================================
+   Szablon ZUS — nadpisania motywu Furo
+   ========================================================================== */
+
+/* --- Pasek boczny: logo / nazwa projektu --------------------------------- */
+.sidebar-brand {
+    border-bottom: 2px solid var(--color-brand-primary);
+    padding-bottom: 0.8rem;
+    margin-bottom: 0.5rem;
+}
+
+.sidebar-brand-text {
+    font-size: 1.05rem;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    color: var(--color-brand-primary) !important;
+}
+
+/* --- Nagłówki API -------------------------------------------------------- */
+h1, h2, h3 {
+    font-weight: 600;
+}
+
+/* --- Podkreślenie sekcji klas / funkcji ---------------------------------- */
+dt.sig {
+    border-left: 3px solid var(--color-brand-primary);
+    padding-left: 0.5rem;
+    background: color-mix(in srgb, var(--color-brand-primary) 5%, transparent);
+}
+
+/* --- Admonitions --------------------------------------------------------- */
+.admonition.note > .admonition-title {
+    background-color: var(--color-brand-primary);
+}
+
+.admonition.warning > .admonition-title {
+    background-color: #b85000;
+}
+
+/* --- Odnośniki ----------------------------------------------------------- */
+a {
+    text-decoration: none;
+}
+
+a:hover {
+    text-decoration: underline;
+}
+
+/* --- Stopka -------------------------------------------------------------- */
+footer {
+    border-top: 1px solid var(--color-brand-primary);
+    font-size: 0.82rem;
+    opacity: 0.75;
+}
+
+/* --- Ciemny motyw: subtelna ramka sekcji --------------------------------- */
+[data-theme="dark"] dt.sig {
+    background: color-mix(in srgb, var(--color-brand-primary) 10%, transparent);
+}
