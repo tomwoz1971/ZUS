@@ -29,7 +29,7 @@ class PostgresBackend(Backend):
     """
 
     name: ClassVar[str] = "postgres"
-    supported_strategies: ClassVar[frozenset[str]] = frozenset({"incremental_quantity"})
+    supported_strategies: ClassVar[frozenset[str]] = frozenset({"incremental_quantity", "upsert"})
 
     def __init__(
         self,

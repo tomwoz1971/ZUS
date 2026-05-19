@@ -15,6 +15,7 @@ from zus_db_utils.strategies.incremental_quantity import (
     IncrementalQuantity,
     WriteResult,
 )
+from zus_db_utils.strategies.upsert import Upsert, UpsertResult
 
 BackendSpec = Union[str, Backend]
 CredentialSpec = Union[str, Credential, None]
@@ -27,6 +28,7 @@ BACKEND_REGISTRY: dict[str, type[Backend]] = {
 
 STRATEGY_REGISTRY: dict[str, type[Any]] = {
     "incremental_quantity": IncrementalQuantity,
+    "upsert": Upsert,
 }
 
 
