@@ -10,3 +10,4 @@ Dokumentacja API
    backends
    credentials
    exceptions
+   logging

@@ -249,6 +249,36 @@ read_increments(
   (konwersja w warstwie query, nie w bazie).
 - Nie używamy lokalnego czasu serwera DB — zegar bazy nie jest źródłem prawdy.
 
+## Logowanie
+
+Pakiet używa standardowego modułu `logging` Pythona. Biblioteka **nie
+konfiguruje żadnych handlerów** — robi to aplikacja wywołująca.
+
+Logger główny: `zus_db_utils`. Moduły używają loggerów potomnych,
+np. `zus_db_utils.strategies.incremental_quantity`.
+
+### Poziomy logów
+
+- **INFO** — po każdym `write()`: tabela, liczniki
+  (`inserted/closed/skipped/missing_closed`), czas wykonania w sekundach.
+
+### Konfiguracja pliku logu
+
+```python
+from zus_db_utils import configure_file_logging
+
+configure_file_logging("/var/log/etl/zus.log")                  # plik plain
+configure_file_logging("/var/log/etl/zus.log", rotate=True)     # z rotacją
+```
+
+Funkcja dodaje handler do loggera `zus_db_utils` i zwraca go (można usunąć
+przez `logger.removeHandler(handler)`). Nie modyfikuje root-loggera.
+
+### Zasady
+
+- Hasła credentialów **nigdy** nie trafiają do logów (nawet na DEBUG).
+- Logów DataFrame'ów całych nie emitujemy (PII i pamięć).
+
 ## Zarządzanie credentialami
 
 Subsystem `zus_db_utils.credentials` z pluggable providers.
