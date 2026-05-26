@@ -193,6 +193,165 @@ class TestWrite:
             IncrementalQuantity(keys=[])
 
 
+class TestCloseMissing:
+    def test_false_leaves_open_records_untouched(
+        self, engine: Engine, metryka_table: str
+    ) -> None:
+        strat = IncrementalQuantity(keys=["a1", "a2"])
+        strat.write(
+            engine,
+            pd.DataFrame([{"a1": "x", "a2": "y", "ilosc": 10}]),
+            metryka_table,
+            as_of=T0,
+        )
+
+        result = strat.write(
+            engine,
+            pd.DataFrame([{"a1": "x", "a2": "z", "ilosc": 5}]),
+            metryka_table,
+            as_of=T1,
+        )
+
+        assert result.missing_closed == 0
+        assert _row_count(engine, metryka_table) == 2
+        with engine.connect() as conn:
+            open_count = conn.execute(
+                text(f"SELECT COUNT(*) FROM {metryka_table} WHERE data_do IS NULL")
+            ).scalar_one()
+        assert open_count == 2
+
+    def test_close_only_closes_absent_keys(
+        self, engine: Engine, metryka_table: str
+    ) -> None:
+        strat_init = IncrementalQuantity(keys=["a1", "a2"])
+        strat_init.write(
+            engine,
+            pd.DataFrame([
+                {"a1": "x", "a2": "y", "ilosc": 10},
+                {"a1": "x", "a2": "gone", "ilosc": 3},
+            ]),
+            metryka_table,
+            as_of=T0,
+        )
+
+        strat = IncrementalQuantity(keys=["a1", "a2"], close_missing="close_only")
+        result = strat.write(
+            engine,
+            pd.DataFrame([{"a1": "x", "a2": "y", "ilosc": 10}]),
+            metryka_table,
+            as_of=T1,
+        )
+
+        assert result.missing_closed == 1
+        assert result.inserted == 0
+        assert result.skipped == 1
+        assert _row_count(engine, metryka_table) == 2
+        with engine.connect() as conn:
+            open_count = conn.execute(
+                text(f"SELECT COUNT(*) FROM {metryka_table} WHERE data_do IS NULL")
+            ).scalar_one()
+        assert open_count == 1
+
+    def test_zero_closes_and_inserts_zero_record(
+        self, engine: Engine, metryka_table: str
+    ) -> None:
+        strat_init = IncrementalQuantity(keys=["a1", "a2"])
+        strat_init.write(
+            engine,
+            pd.DataFrame([
+                {"a1": "x", "a2": "y", "ilosc": 10},
+                {"a1": "x", "a2": "gone", "ilosc": 3},
+            ]),
+            metryka_table,
+            as_of=T0,
+        )
+
+        strat = IncrementalQuantity(keys=["a1", "a2"], close_missing="zero")
+        result = strat.write(
+            engine,
+            pd.DataFrame([{"a1": "x", "a2": "y", "ilosc": 10}]),
+            metryka_table,
+            as_of=T1,
+        )
+
+        assert result.missing_closed == 1
+        assert result.inserted == 1
+        assert result.skipped == 1
+        assert _row_count(engine, metryka_table) == 3
+        with engine.connect() as conn:
+            rows = conn.execute(
+                text(
+                    f"SELECT a2, ilosc, data_do FROM {metryka_table}"
+                    f" WHERE a2 = 'gone' ORDER BY id"
+                )
+            ).all()
+        assert len(rows) == 2
+        assert rows[0].data_do is not None
+        assert rows[1].ilosc == 0
+        assert rows[1].data_do is None
+
+    def test_present_keys_are_not_touched_by_close_missing(
+        self, engine: Engine, metryka_table: str
+    ) -> None:
+        strat = IncrementalQuantity(keys=["a1", "a2"], close_missing="close_only")
+        strat.write(
+            engine,
+            pd.DataFrame([
+                {"a1": "x", "a2": "y", "ilosc": 10},
+                {"a1": "x", "a2": "z", "ilosc": 20},
+            ]),
+            metryka_table,
+            as_of=T0,
+        )
+
+        result = strat.write(
+            engine,
+            pd.DataFrame([
+                {"a1": "x", "a2": "y", "ilosc": 10},
+                {"a1": "x", "a2": "z", "ilosc": 20},
+            ]),
+            metryka_table,
+            as_of=T1,
+        )
+
+        assert result.missing_closed == 0
+        assert result.skipped == 2
+        with engine.connect() as conn:
+            open_count = conn.execute(
+                text(f"SELECT COUNT(*) FROM {metryka_table} WHERE data_do IS NULL")
+            ).scalar_one()
+        assert open_count == 2
+
+    def test_close_missing_empty_input_closes_all(
+        self, engine: Engine, metryka_table: str
+    ) -> None:
+        strat_init = IncrementalQuantity(keys=["a1", "a2"])
+        strat_init.write(
+            engine,
+            pd.DataFrame([
+                {"a1": "x", "a2": "y", "ilosc": 5},
+                {"a1": "x", "a2": "z", "ilosc": 7},
+            ]),
+            metryka_table,
+            as_of=T0,
+        )
+
+        strat = IncrementalQuantity(keys=["a1", "a2"], close_missing="close_only")
+        result = strat.write(
+            engine,
+            pd.DataFrame(columns=["a1", "a2", "ilosc"]),
+            metryka_table,
+            as_of=T1,
+        )
+
+        assert result.missing_closed == 2
+        with engine.connect() as conn:
+            open_count = conn.execute(
+                text(f"SELECT COUNT(*) FROM {metryka_table} WHERE data_do IS NULL")
+            ).scalar_one()
+        assert open_count == 0
+
+
 class TestReadCurrent:
     def test_returns_only_open_rows(self, engine: Engine, metryka_table: str) -> None:
         strat = IncrementalQuantity(keys=["a1", "a2"])
