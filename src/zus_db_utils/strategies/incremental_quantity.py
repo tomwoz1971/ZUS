@@ -192,6 +192,7 @@ class IncrementalQuantity:
                 open_stmt = select(
                     *[tbl.c[k] for k in self.keys],
                     tbl.c[self.id_col],
+                    tbl.c[self.quantity_col],
                 ).where(tbl.c[self.valid_to_col].is_(None))
                 if use_row_lock:
                     open_stmt = open_stmt.with_for_update()
@@ -201,6 +202,10 @@ class IncrementalQuantity:
                     m = row._mapping
                     row_key = tuple(m[k] for k in self.keys)
                     if row_key in input_key_tuples:
+                        continue
+                    if self.close_missing == "zero" and self._values_equal(
+                        m[self.quantity_col], 0
+                    ):
                         continue
                     conn.execute(
                         tbl.update()

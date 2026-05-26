@@ -290,6 +290,47 @@ class TestCloseMissing:
         assert rows[1].ilosc == 0
         assert rows[1].data_do is None
 
+    def test_zero_does_not_reclose_already_zero_record(
+        self, engine: Engine, metryka_table: str
+    ) -> None:
+        strat_init = IncrementalQuantity(keys=["a1", "a2"])
+        strat_init.write(
+            engine,
+            pd.DataFrame([
+                {"a1": "x", "a2": "y", "ilosc": 10},
+                {"a1": "x", "a2": "gone", "ilosc": 3},
+            ]),
+            metryka_table,
+            as_of=T0,
+        )
+
+        strat = IncrementalQuantity(keys=["a1", "a2"], close_missing="zero")
+        strat.write(
+            engine,
+            pd.DataFrame([{"a1": "x", "a2": "y", "ilosc": 10}]),
+            metryka_table,
+            as_of=T1,
+        )
+
+        # drugie wywołanie: 'gone' nadal nieobecny, ale ma już ilosc=0 — wartość
+        # bez zmiany, nie powinien być ponownie zamykany
+        result = strat.write(
+            engine,
+            pd.DataFrame([{"a1": "x", "a2": "y", "ilosc": 10}]),
+            metryka_table,
+            as_of=T2,
+        )
+
+        assert result.missing_closed == 0
+        assert result.inserted == 0
+        assert result.skipped == 1
+        assert _row_count(engine, metryka_table) == 3
+        with engine.connect() as conn:
+            open_count = conn.execute(
+                text(f"SELECT COUNT(*) FROM {metryka_table} WHERE data_do IS NULL")
+            ).scalar_one()
+        assert open_count == 2  # 'y' (10) i 'gone' (0) — oba otwarte
+
     def test_present_keys_are_not_touched_by_close_missing(
         self, engine: Engine, metryka_table: str
     ) -> None:
