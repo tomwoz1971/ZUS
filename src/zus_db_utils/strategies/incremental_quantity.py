@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -8,6 +10,8 @@ from typing import Literal
 import pandas as pd
 from sqlalchemy import MetaData, Table, and_, select
 from sqlalchemy.engine import Engine
+
+_log = logging.getLogger(__name__)
 
 from zus_db_utils.exceptions import SchemaValidationError, UnsupportedStrategyError
 from zus_db_utils.input_adapters import SupportedInput, normalize_input
@@ -106,6 +110,8 @@ class IncrementalQuantity:
         :raises ValueError: gdy w wejsciu sa zduplikowane klucze biznesowe
         :raises UnsupportedStrategyError: gdy dialekt bazy nie jest wspierany
         """
+        _t0 = time.perf_counter()
+
         if engine.dialect.name not in SUPPORTED_DIALECTS:
             raise UnsupportedStrategyError(
                 f"Strategia incremental_quantity wspiera: {sorted(SUPPORTED_DIALECTS)} "
@@ -215,12 +221,22 @@ class IncrementalQuantity:
                         )
                         inserted += 1
 
-        return WriteResult(
+        result = WriteResult(
             inserted=inserted,
             closed=closed,
             skipped=skipped,
             missing_closed=missing_closed,
         )
+        _log.info(
+            "write table=%r inserted=%d closed=%d skipped=%d missing_closed=%d elapsed=%.3fs",
+            table,
+            result.inserted,
+            result.closed,
+            result.skipped,
+            result.missing_closed,
+            time.perf_counter() - _t0,
+        )
+        return result
 
     def _validate_dataframe(self, df: pd.DataFrame) -> None:
         required = set(self.keys) | {self.quantity_col}
