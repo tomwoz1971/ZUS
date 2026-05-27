@@ -322,6 +322,48 @@ class TestCloseMissing:
             ).scalar_one()
         assert open_count == 2
 
+    def test_zero_idempotent_on_repeated_missing(
+        self, engine: Engine, metryka_table: str
+    ) -> None:
+        strat = IncrementalQuantity(keys=["a1", "a2"], close_missing="zero")
+        strat.write(
+            engine,
+            pd.DataFrame([
+                {"a1": "x", "a2": "y", "ilosc": 10},
+                {"a1": "x", "a2": "gone", "ilosc": 3},
+            ]),
+            metryka_table,
+            as_of=T0,
+        )
+        strat.write(
+            engine,
+            pd.DataFrame([{"a1": "x", "a2": "y", "ilosc": 10}]),
+            metryka_table,
+            as_of=T1,
+        )
+        # Trzeci write — klucz "gone" nadal nieobecny, ma już ilosc=0
+        result = strat.write(
+            engine,
+            pd.DataFrame([{"a1": "x", "a2": "y", "ilosc": 10}]),
+            metryka_table,
+            as_of=T2,
+        )
+
+        assert result.missing_closed == 0
+        assert result.skipped == 1
+        with engine.connect() as conn:
+            rows = conn.execute(
+                text(
+                    f"SELECT ilosc, data_do FROM {metryka_table}"
+                    f" WHERE a2 = 'gone' ORDER BY id"
+                )
+            ).all()
+        # Powinny byc tylko 2 rekordy: oryginalny (zamkniety) i zero (otwarty)
+        assert len(rows) == 2
+        assert rows[0].data_do is not None
+        assert rows[1].ilosc == 0
+        assert rows[1].data_do is None
+
     def test_close_missing_empty_input_closes_all(
         self, engine: Engine, metryka_table: str
     ) -> None:
