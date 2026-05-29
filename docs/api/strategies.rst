@@ -94,3 +94,44 @@ Wymagane kolumny (tworzone przez DDL poza modułem):
 .. autoclass:: zus_db_utils.strategies.incremental_quantity.IncrementalQuantity
    :members:
    :special-members: __init__
+
+.. _strategies-upsert:
+
+Upsert
+------
+
+Strategia INSERT-or-UPDATE na podstawie klucza biznesowego.
+Dla każdego wiersza wejścia:
+
+1. Sprawdza, czy wiersz o danym kluczu już istnieje w tabeli.
+2. Brak rekordu → ``INSERT`` nowego wiersza.
+3. Rekord istnieje → ``UPDATE`` wszystkich kolumn niebędących kluczem.
+
+Kolumny wejścia nieobecne w tabeli są ignorowane. Operacja wykonywana
+w jednej transakcji; błąd dowolnego wiersza powoduje rollback całego
+``write()``.
+
+Przykład::
+
+    from zus_db_utils import AggWriter
+
+    writer = AggWriter(
+        backend="postgres",
+        strategy="upsert",
+        credential="postgres-dwh",
+        keys=["operator_id", "report_date"],
+    )
+    result = writer.write(df, table="fct_operator_workload")
+    print(result.inserted, result.updated)
+
+.. rubric:: Wspierane backendy
+
+PostgreSQL, MSSQL, SQLite.
+CSV / Parquet → :exc:`~zus_db_utils.exceptions.UnsupportedStrategyError`.
+
+.. autoclass:: zus_db_utils.strategies.upsert.UpsertResult
+   :members:
+
+.. autoclass:: zus_db_utils.strategies.upsert.Upsert
+   :members:
+   :special-members: __init__

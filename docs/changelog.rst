@@ -1,6 +1,15 @@
 Historia zmian
 ==============
 
+0.3.0 (2026-05-29)
+------------------
+
+* Nowa strategia :class:`~zus_db_utils.strategies.upsert.Upsert` —
+  INSERT-or-UPDATE na podstawie klucza biznesowego; wspierana przez
+  backendy PostgreSQL, MSSQL, SQLite.
+* :class:`~zus_db_utils.strategies.upsert.UpsertResult` z licznikami
+  ``inserted`` i ``updated``.
+
 0.2.0 (2026-05-26)
 ------------------
 
