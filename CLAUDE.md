@@ -359,6 +359,13 @@ ruff format src tests
 mypy src
 ```
 
+## Wersjonowanie
+
+Przy każdej zmianie publicznego API lub nowej funkcjonalności należy zaktualizować
+wersję w `pyproject.toml` (pole `version` w sekcji `[project]`) oraz dodać wpis
+do `docs/changelog.rst`. Wersjonowanie według [SemVer](https://semver.org/):
+`MAJOR.MINOR.PATCH` — nowa strategia / backend to MINOR, bugfix to PATCH.
+
 ## Czego NIE robić
 
 - Nie dodawać nowych zależności bez dyskusji — stos ma być minimalny
