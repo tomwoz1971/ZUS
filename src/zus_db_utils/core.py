@@ -6,6 +6,9 @@ from types import TracebackType
 from typing import Any, Union
 
 import pandas as pd
+from sqlalchemy import text
+from sqlalchemy.sql.elements import TextClause
+from sqlalchemy.sql.expression import Selectable
 
 from zus_db_utils.backends import (
     Backend,
@@ -27,6 +30,7 @@ _log = logging.getLogger(__name__)
 
 BackendSpec = Union[str, Backend]
 CredentialSpec = Union[str, Credential, None]
+SqlSpec = Union[str, TextClause, Selectable]
 
 BACKEND_REGISTRY: dict[str, type[Backend]] = {
     SQLiteBackend.name: SQLiteBackend,
@@ -194,6 +198,9 @@ class AggReader:
     * :meth:`read_current` — aktualnie obowiazujace ilosci,
     * :meth:`read_snapshots` — snapshoty na siatce czasu,
     * :meth:`read_increments` — przyrosty miedzy krokami.
+
+    Dodatkowo :meth:`read_sql` pozwala wykonac **dowolne zapytanie SQL**
+    (escape hatch) z bezpiecznym wiazaniem parametrow.
 
     Przyklad uzycia::
 
@@ -380,6 +387,51 @@ class AggReader:
             "read_increments table=%r start=%s end=%s step=%s rows=%d",
             table, start, end, step, len(df),
         )
+        return df
+
+    def read_sql(
+        self,
+        sql: SqlSpec,
+        *,
+        params: dict[str, Any] | None = None,
+    ) -> pd.DataFrame:
+        """Wykonuje dowolne zapytanie SQL i zwraca wynik jako ``DataFrame``.
+
+        Metoda „ucieczki" (escape hatch) dla przypadkow nieobslugiwanych przez
+        wyspecjalizowane metody ``read_current`` / ``read_snapshots`` /
+        ``read_increments`` — np. JOIN-y, agregacje, widoki, CTE czy zapytania
+        specyficzne dla dialektu.
+
+        Zapytanie wykonywane jest w trybie tylko-do-odczytu (zwykle
+        ``connect()`` bez ``begin()``); zaleca sie uzywanie jej wylacznie
+        do ``SELECT``. Aby zapis odbywal sie kontrolowanie, korzystaj z
+        :class:`AggWriter` i strategii.
+
+        .. warning::
+            Aby uniknac SQL injection, **nigdy** nie sklejaj wartosci
+            uzytkownika do stringa SQL. Uzywaj parametrow zwiazanych —
+            w SQL podaj ``:nazwa`` i przekaz wartosci w ``params``::
+
+                df = reader.read_sql(
+                    "SELECT * FROM metryka WHERE a1 = :a1 AND ilosc > :minq",
+                    params={"a1": "x", "minq": 100},
+                )
+
+        :param sql: zapytanie jako ``str`` (zostanie owiniete w
+            :func:`sqlalchemy.text`), gotowy :class:`~sqlalchemy.sql.elements.TextClause`
+            albo obiekt selectable SQLAlchemy (np. wynik ``select(...)``)
+        :param params: opcjonalne parametry zwiazane dla zapytania
+            (``{nazwa: wartosc}``); mapowane na ``:nazwa`` w SQL
+        :returns: :class:`pandas.DataFrame` z wynikiem zapytania
+            (kolumny dokladnie takie jak zwrocone przez baze; bez konwersji
+            stref czasowych — w odroznieniu od ``read_*``)
+        :raises sqlalchemy.exc.SQLAlchemyError: gdy zapytanie jest niepoprawne
+            lub wystapi blad bazy
+        """
+        statement: SqlSpec = text(sql) if isinstance(sql, str) else sql
+        with self.backend.engine.connect() as conn:
+            df = pd.read_sql_query(statement, conn, params=params)
+        _log.info("read_sql rows=%d", len(df))
         return df
 
     def dispose(self) -> None:

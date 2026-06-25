@@ -133,3 +133,57 @@ class TestReadIncrements:
         assert set(df.columns) == {"a1", "ts", "przyrost"}
         first_x = df[df["a1"] == "x"].sort_values("ts").iloc[0]
         assert pd.isna(first_x["przyrost"])
+
+
+class TestReadSql:
+    def test_arbitrary_select_string(self, populated_db: str) -> None:
+        with AggReader(
+            backend="sqlite", keys=["a1"], backend_kwargs={"path": populated_db}
+        ) as reader:
+            df = reader.read_sql("SELECT COUNT(*) AS n FROM metryka")
+        assert df["n"].iloc[0] == 3
+
+    def test_params_are_bound(self, populated_db: str) -> None:
+        with AggReader(
+            backend="sqlite", keys=["a1"], backend_kwargs={"path": populated_db}
+        ) as reader:
+            df = reader.read_sql(
+                "SELECT * FROM metryka WHERE a1 = :a1 AND ilosc >= :minq",
+                params={"a1": "x", "minq": 20},
+            )
+        assert len(df) == 1
+        assert df["a1"].iloc[0] == "x"
+        assert df["ilosc"].iloc[0] == 30
+
+    def test_aggregation_with_group_by(self, populated_db: str) -> None:
+        with AggReader(
+            backend="sqlite", keys=["a1"], backend_kwargs={"path": populated_db}
+        ) as reader:
+            df = reader.read_sql(
+                "SELECT a1, COUNT(*) AS cnt FROM metryka GROUP BY a1 ORDER BY a1"
+            )
+        assert list(df["a1"]) == ["x", "y"]
+        assert df.set_index("a1").loc["x", "cnt"] == 2
+
+    def test_accepts_sqlalchemy_selectable(self, populated_db: str) -> None:
+        from sqlalchemy import MetaData, Table, select
+
+        with AggReader(
+            backend="sqlite", keys=["a1"], backend_kwargs={"path": populated_db}
+        ) as reader:
+            metadata = MetaData()
+            tbl = Table("metryka", metadata, autoload_with=reader.backend.engine)
+            stmt = select(tbl.c.a1, tbl.c.ilosc).where(tbl.c.a1 == "y")
+            df = reader.read_sql(stmt)
+        assert len(df) == 1
+        assert df["a1"].iloc[0] == "y"
+        assert df["ilosc"].iloc[0] == 5
+
+    def test_empty_result_returns_empty_df(self, populated_db: str) -> None:
+        with AggReader(
+            backend="sqlite", keys=["a1"], backend_kwargs={"path": populated_db}
+        ) as reader:
+            df = reader.read_sql(
+                "SELECT * FROM metryka WHERE a1 = :a1", params={"a1": "brak"}
+            )
+        assert len(df) == 0
