@@ -1,6 +1,24 @@
 Historia zmian
 ==============
 
+0.4.0 (2026-06-25)
+------------------
+
+* Nowa fasada :class:`~zus_db_utils.core.AggReader` — analogiczna do
+  :class:`~zus_db_utils.core.AggWriter`, ale do odczytu danych (SELECT).
+  Udostępnia metody ``read_current`` / ``read_snapshots`` /
+  ``read_increments`` ponad wspólnym mechanizmem backendów i credentiali,
+  z logowaniem operacji odczytu na poziomie ``INFO``.
+* Wydzielenie wspólnych helperów ``resolve_backend`` / ``resolve_credential``
+  na poziom modułu :mod:`zus_db_utils.core` (używane przez obie fasady).
+* Dokumentacja: nowa strona :ref:`uprawnień / credentiali <credentials-overview>`
+  opisująca podsystem
+  uprawnień (model :class:`Credential`, interfejs ``CredentialStore``,
+  providerzy ``KeyringStore`` / ``EncryptedFileStore``, rotacja haseł).
+* Naprawa nieaktualnych testów po dodaniu strategii ``upsert`` (SQLite
+  wspiera teraz ``upsert``; test nieznanej strategii używa faktycznie
+  nieistniejącej nazwy).
+
 0.3.0 (2026-05-29)
 ------------------
 

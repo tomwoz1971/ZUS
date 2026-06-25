@@ -29,26 +29,41 @@ do różnych backendów (PostgreSQL, MSSQL, SQLite) z różnymi strategiami
 
 .. rubric:: Odczyt danych
 
+Najprościej przez fasadę :class:`~zus_db_utils.core.AggReader` — analogiczną
+do ``AggWriter``, ale do odczytu (SELECT). Zarządza backendem i credentialem,
+a domyślne ``keys`` można podać raz w konstruktorze:
+
 .. code-block:: python
 
-   from zus_db_utils.queries.incremental_quantity import (
-       read_current,
-       read_snapshots,
-       read_increments,
+   from zus_db_utils import AggReader
+
+   reader = AggReader(
+       backend="postgres",
+       credential="postgres-dwh",
+       keys=["operator_id"],
    )
 
    # Bieżące wartości
-   df = read_current(engine, "fct_metryka", keys=["operator_id"])
+   df = reader.read_current(table="fct_metryka")
 
    # Z filtrem
-   df = read_current(
-       engine, "fct_metryka", keys=["operator_id"],
+   df = reader.read_current(
+       table="fct_metryka",
        filters={"region": "Warszawa", "typ": ["A", "B"]},
    )
 
-   # Historia (snapshoty dzienne)
-   df = read_snapshots(engine, "fct_metryka", keys=["operator_id"],
-                       start=dt_od, end=dt_do, step="day")
+   # Historia (snapshoty dzienne) oraz przyrosty
+   df = reader.read_snapshots(table="fct_metryka", start=dt_od, end=dt_do, step="day")
+   df = reader.read_increments(table="fct_metryka", start=dt_od, end=dt_do, step="day")
+
+Alternatywnie można wołać funkcje niskopoziomowe z modułu
+:mod:`zus_db_utils.queries.incremental_quantity`, podając własny ``engine``:
+
+.. code-block:: python
+
+   from zus_db_utils.queries.incremental_quantity import read_current
+
+   df = read_current(engine, "fct_metryka", keys=["operator_id"])
 
 ----
 
