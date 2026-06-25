@@ -23,6 +23,14 @@ Przykładowy wpis w pliku logu po operacji ``write()``::
     2026-05-26 06:00:01,234 INFO     zus_db_utils.strategies.incremental_quantity \
     write table='operator_workload' inserted=3 closed=1 skipped=12 missing_closed=2 elapsed=0.042s
 
+Operacje odczytu przez :class:`~zus_db_utils.core.AggReader` logowane są
+na poziomie ``INFO`` przez logger ``zus_db_utils.core``::
+
+    2026-06-25 06:00:02,001 INFO     zus_db_utils.core \
+    read_current table='operator_workload' rows=128
+    2026-06-25 06:00:02,310 INFO     zus_db_utils.core \
+    read_snapshots table='operator_workload' start=... end=... step=day rows=512
+
 .. rubric:: Ręczna konfiguracja
 
 Jeśli chcesz zintegrować logi pakietu z istniejącą konfiguracją logowania

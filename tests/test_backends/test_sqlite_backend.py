@@ -39,7 +39,8 @@ def test_supported_strategies_declared() -> None:
     backend = SQLiteBackend()
     try:
         assert backend.supports("incremental_quantity")
-        assert not backend.supports("upsert")
+        assert backend.supports("upsert")
+        assert not backend.supports("nieistniejaca_strategia")
     finally:
         backend.dispose()
 

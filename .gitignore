@@ -38,3 +38,5 @@ Thumbs.db
 *.enc.bak
 *.salt
 credentials.*
+# ...ale dokumentacja podsystemu credentiali musi byc wersjonowana
+!docs/api/credentials.rst

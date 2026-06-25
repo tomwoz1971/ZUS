@@ -64,7 +64,7 @@ class TestRegistryDispatch:
 
     def test_unknown_strategy_raises(self) -> None:
         with pytest.raises(UnsupportedStrategyError):
-            AggWriter(backend="sqlite", strategy="upsert", keys=["a"])
+            AggWriter(backend="sqlite", strategy="nieistniejaca_strategia", keys=["a"])
 
     def test_accepts_backend_instance(self, sqlite_db: str) -> None:
         backend = SQLiteBackend(path=sqlite_db)

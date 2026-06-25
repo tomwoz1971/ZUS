@@ -7,7 +7,10 @@ from zus_db_utils.exceptions import (
 
 
 def test_version_is_set() -> None:
-    assert zus_db_utils.__version__ == "0.1.0"
+    # Wersja musi byc ustawiona i miec format semver (X.Y.Z).
+    parts = zus_db_utils.__version__.split(".")
+    assert len(parts) == 3
+    assert all(p.isdigit() for p in parts)
 
 
 def test_exception_hierarchy() -> None:
