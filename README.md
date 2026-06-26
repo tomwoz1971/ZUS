@@ -105,22 +105,18 @@ musi działać z RHEL, gdzie konfiguracja Kerberos wymaga root'a i zespołu AD.
 ## Struktura projektu
 
 ```
-src/agg_writer/
-├── core.py                  # Fasada AggWriter
+src/zus_db_utils/
+├── core.py                  # Fasady AggWriter i AggReader
 ├── backends/                # Jak się łączyć i fizycznie pisać
 │   ├── base.py
 │   ├── postgres.py
 │   ├── mssql.py
-│   ├── sqlite.py
-│   ├── csv_backend.py
-│   └── parquet.py
+│   └── sqlite.py
 ├── strategies/              # Logika ładowania
-│   ├── base.py
-│   ├── append.py
-│   ├── upsert.py
-│   ├── full_refresh.py
-│   ├── scd2.py
-│   └── watermark.py
+│   ├── incremental_quantity.py
+│   └── upsert.py
+├── queries/                 # Zapytania odczytu danych
+│   └── incremental_quantity.py
 ├── credentials/             # Bezpieczne przechowywanie haseł
 │   ├── base.py
 │   ├── factory.py
@@ -132,6 +128,18 @@ src/agg_writer/
 ├── schema.py
 ├── config.py
 └── exceptions.py
+
+scripts/                      # Skrypty cron (produkcja)
+├── daily_sync.py             # Przykładowy skrypt synchronizacji
+├── run_daily_sync.sh         # Wrapper bash
+├── example_crontab.txt       # Przykładowa konfiguracja crontab
+└── README.md                 # Dokumentacja cron
+
+docs/                         # Dokumentacja Sphinx
+├── index.rst
+├── api/
+├── changelog.rst
+└── conf.py
 ```
 
 ## Testy

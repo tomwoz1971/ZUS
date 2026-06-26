@@ -40,3 +40,7 @@ Thumbs.db
 credentials.*
 # ...ale dokumentacja podsystemu credentiali musi byc wersjonowana
 !docs/api/credentials.rst
+
+# Katalogi generowane przez skrypty cron
+data/
+logs/
