@@ -4,7 +4,7 @@ from collections.abc import Iterator
 
 import pandas as pd
 import pytest
-from sqlalchemy import Column, Integer, MetaData, String, Table
+from sqlalchemy import Column, Integer, MetaData, String, Table, text
 from sqlalchemy.engine import Engine
 
 from zus_db_utils.exceptions import SchemaValidationError, UnsupportedStrategyError
@@ -180,6 +180,130 @@ class TestKeyOnlyInput:
         assert result.inserted == 1
         rows = _fetch_all(engine, simple_table)
         assert "nieistnieje" not in rows[0]
+
+
+class TestPartialUpdates:
+    """Testy zachowania upsert przy częściowych aktualizacjach.
+    
+    DataFrame zawiera klucze + tylko podzbiór kolumn z tabeli.
+    Kolumny nieobecne w DataFrame powinny:
+    - przy UPDATE: zachować swoją aktualną wartość w bazie
+    - przy INSERT: przyjąć DEFAULT lub NULL
+    """
+
+    @pytest.fixture
+    def table_with_defaults(self, engine: Engine) -> Iterator[str]:
+        """Tabela z 3 kolumnami wartości: v1, v2 (z DEFAULT), v3 (nullable)."""
+        table_name = "partial_test"
+        with engine.begin() as conn:
+            conn.execute(
+                text(
+                    f"""
+                CREATE TABLE {table_name} (
+                    key_col TEXT PRIMARY KEY,
+                    v1 INTEGER,
+                    v2 INTEGER DEFAULT 999,
+                    v3 TEXT
+                )
+            """
+                )
+            )
+        yield table_name
+        with engine.begin() as conn:
+            conn.execute(text(f"DROP TABLE IF EXISTS {table_name}"))
+
+    def test_update_preserves_omitted_columns(
+        self, engine: Engine, table_with_defaults: str
+    ) -> None:
+        """UPDATE: kolumny nieobecne w DataFrame zachowują starą wartość."""
+        strat = Upsert(keys=["key_col"])
+
+        # Wstaw pełny wiersz
+        strat.write(
+            engine,
+            pd.DataFrame([{"key_col": "A", "v1": 10, "v2": 20, "v3": "stary"}]),
+            table_with_defaults,
+        )
+
+        # UPDATE z DataFrame zawierającym TYLKO key_col + v1 (brak v2, v3)
+        result = strat.write(
+            engine,
+            pd.DataFrame([{"key_col": "A", "v1": 100}]),
+            table_with_defaults,
+        )
+
+        assert result == UpsertResult(inserted=0, updated=1)
+
+        rows = _fetch_all(engine, table_with_defaults)
+        assert len(rows) == 1
+        assert rows[0]["v1"] == 100  # zaktualizowane
+        assert rows[0]["v2"] == 20  # NIEZMIENIONE (nie NULL!)
+        assert rows[0]["v3"] == "stary"  # NIEZMIENIONE (nie NULL!)
+
+    def test_insert_uses_defaults_for_omitted_columns(
+        self, engine: Engine, table_with_defaults: str
+    ) -> None:
+        """INSERT: kolumny nieobecne w DataFrame przyjmują DEFAULT lub NULL."""
+        strat = Upsert(keys=["key_col"])
+
+        # INSERT z DataFrame zawierającym TYLKO key_col + v1 (brak v2, v3)
+        result = strat.write(
+            engine,
+            pd.DataFrame([{"key_col": "B", "v1": 50}]),
+            table_with_defaults,
+        )
+
+        assert result == UpsertResult(inserted=1, updated=0)
+
+        rows = _fetch_all(engine, table_with_defaults)
+        assert len(rows) == 1
+        assert rows[0]["v1"] == 50  # wstawione z DataFrame
+        assert rows[0]["v2"] == 999  # DEFAULT
+        assert rows[0]["v3"] is None  # NULL (brak DEFAULT)
+
+    def test_mixed_insert_update_partial_columns(
+        self, engine: Engine, table_with_defaults: str
+    ) -> None:
+        """Mieszanka INSERT + UPDATE z częściowymi kolumnami."""
+        strat = Upsert(keys=["key_col"])
+
+        # Początkowy stan: 2 pełne wiersze
+        strat.write(
+            engine,
+            pd.DataFrame([
+                {"key_col": "X", "v1": 1, "v2": 2, "v3": "opis_X"},
+                {"key_col": "Y", "v1": 3, "v2": 4, "v3": "opis_Y"},
+            ]),
+            table_with_defaults,
+        )
+
+        # UPSERT 1: UPDATE X (tylko v1, bez v2/v3)
+        result1 = strat.write(
+            engine,
+            pd.DataFrame([{"key_col": "X", "v1": 111}]),
+            table_with_defaults,
+        )
+        assert result1 == UpsertResult(inserted=0, updated=1)
+
+        # UPSERT 2: INSERT Z (tylko v3, bez v1/v2)
+        result2 = strat.write(
+            engine,
+            pd.DataFrame([{"key_col": "Z", "v3": "nowy_opis"}]),
+            table_with_defaults,
+        )
+        assert result2 == UpsertResult(inserted=1, updated=0)
+
+        rows = {r["key_col"]: r for r in _fetch_all(engine, table_with_defaults)}
+
+        # X: UPDATE zachował v2, v3
+        assert rows["X"]["v1"] == 111  # zaktualizowane
+        assert rows["X"]["v2"] == 2  # NIEZMIENIONE
+        assert rows["X"]["v3"] == "opis_X"  # NIEZMIENIONE
+
+        # Z: INSERT użył DEFAULT dla v2, NULL dla v1
+        assert rows["Z"]["v1"] is None  # NULL (nie było w DataFrame)
+        assert rows["Z"]["v2"] == 999  # DEFAULT
+        assert rows["Z"]["v3"] == "nowy_opis"  # z DataFrame
 
 
 class TestTableWithPK:

@@ -12,6 +12,10 @@ Historia zmian
 * :meth:`~zus_db_utils.core.AggReader.read_sql` — wykonanie **dowolnego
   zapytania SQL** (escape hatch) z bezpiecznym wiązaniem parametrów; przyjmuje
   ``str``, ``TextClause`` lub selectable SQLAlchemy i zwraca ``DataFrame``.
+* Dokumentacja: sekcja :ref:`częściowych aktualizacji <strategies-upsert>`
+  w strategii ``upsert`` — zachowanie kolumn nieobecnych w DataFrame
+  (UPDATE zachowuje stare wartości, INSERT przyjmuje DEFAULT/NULL) + ostrzeżenie
+  o pułapce Pandas NaN przy mieszaniu różnych schematów w jednym DataFrame.
 * Wydzielenie wspólnych helperów ``resolve_backend`` / ``resolve_credential``
   na poziom modułu :mod:`zus_db_utils.core` (używane przez obie fasady).
 * Dokumentacja: nowa strona :ref:`uprawnień / credentiali <credentials-overview>`
