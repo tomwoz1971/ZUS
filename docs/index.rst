@@ -56,6 +56,13 @@ a domyślne ``keys`` można podać raz w konstruktorze:
    df = reader.read_snapshots(table="fct_metryka", start=dt_od, end=dt_do, step="day")
    df = reader.read_increments(table="fct_metryka", start=dt_od, end=dt_do, step="day")
 
+   # Dowolne zapytanie SQL (escape hatch) — z bezpiecznym wiązaniem parametrów
+   df = reader.read_sql(
+       "SELECT a1, SUM(ilosc) AS suma FROM fct_metryka "
+       "WHERE region = :region GROUP BY a1",
+       params={"region": "Warszawa"},
+   )
+
 Alternatywnie można wołać funkcje niskopoziomowe z modułu
 :mod:`zus_db_utils.queries.incremental_quantity`, podając własny ``engine``:
 

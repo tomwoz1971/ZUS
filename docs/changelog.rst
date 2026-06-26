@@ -9,6 +9,9 @@ Historia zmian
   Udostępnia metody ``read_current`` / ``read_snapshots`` /
   ``read_increments`` ponad wspólnym mechanizmem backendów i credentiali,
   z logowaniem operacji odczytu na poziomie ``INFO``.
+* :meth:`~zus_db_utils.core.AggReader.read_sql` — wykonanie **dowolnego
+  zapytania SQL** (escape hatch) z bezpiecznym wiązaniem parametrów; przyjmuje
+  ``str``, ``TextClause`` lub selectable SQLAlchemy i zwraca ``DataFrame``.
 * Wydzielenie wspólnych helperów ``resolve_backend`` / ``resolve_credential``
   na poziom modułu :mod:`zus_db_utils.core` (używane przez obie fasady).
 * Dokumentacja: nowa strona :ref:`uprawnień / credentiali <credentials-overview>`
