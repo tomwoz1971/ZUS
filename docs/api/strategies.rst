@@ -124,6 +124,74 @@ Przykład::
     result = writer.write(df, table="fct_operator_workload")
     print(result.inserted, result.updated)
 
+.. rubric:: Częściowe aktualizacje (partial updates)
+
+Strategia ``upsert`` bezpiecznie obsługuje DataFrame zawierający **tylko
+podzbiór kolumn** z tabeli docelowej (klucze + wybrane wartości).
+Kolumny **nieobecne** w DataFrame są traktowane w sposób zależny od operacji:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 20 40 40
+
+   * - Operacja
+     - Kolumny **w** DataFrame
+     - Kolumny **poza** DataFrame
+   * - **UPDATE** (istniejący klucz)
+     - Aktualizowane na nowe wartości
+     - **Zachowują aktualną wartość** w bazie
+   * - **INSERT** (nowy klucz)
+     - Wstawiane z podanymi wartościami
+     - Przyjmują ``DEFAULT`` lub ``NULL``
+
+**Przykład — aktualizacja tylko ceny**::
+
+    # Tabela produkty: (id, nazwa, cena, opis, kategoria)
+    # Wiersz id=1 istnieje z cena=2500, opis='Oryginalny opis', kategoria='Laptop'
+
+    df_update_price = pd.DataFrame([
+        {"id": 1, "cena": 2300.0},  # tylko klucz + cena
+        {"id": 2, "cena": 450.0},   # nowy produkt (INSERT)
+    ])
+
+    writer = AggWriter(backend="postgres", strategy="upsert", keys=["id"])
+    result = writer.write(df_update_price, "produkty")
+    # id=1: UPDATE → cena=2300, opis='Oryginalny opis' (NIEZMIENIONY), kategoria='Laptop' (NIEZMIENIONY)
+    # id=2: INSERT → cena=450, opis=NULL (brak DEFAULT), kategoria=NULL (brak DEFAULT)
+
+**Zalety:**
+
+* Bezpieczne — nie ryzykujesz utraty danych w pominiętych kolumnach.
+* Elastyczne — różne DataFrame mogą aktualizować różne subsets kolumn.
+* Wydajne — nie trzeba wcześniej odczytywać pełnych wierszy z bazy.
+
+**Uwagi:**
+
+* Przy **INSERT** kolumny bez ``DEFAULT`` i bez ``NOT NULL`` dostaną ``NULL``.
+* Jeśli kolumna ma ``NOT NULL`` i brak ``DEFAULT``, INSERT się wywali.
+* Implementacja: tylko kolumny obecne w DataFrame trafiają do SQL ``UPDATE``
+  / ``INSERT`` — pozostałe kolumny są ignorowane w zapytaniu.
+
+.. warning::
+    **Pułapka Pandas NaN:** Gdy DataFrame tworzony jest z list dictów
+    z różnymi kluczami, Pandas automatycznie **dodaje brakujące kolumny
+    z wartością NaN**::
+
+        df = pd.DataFrame([
+            {"id": 1, "cena": 100},      # brak kolumny "opis"
+            {"id": 2, "opis": "tekst"},  # brak kolumny "cena"
+        ])
+        # Wynik: DataFrame z kolumnami [id, cena, opis],
+        # gdzie wiersz 1 ma opis=NaN, wiersz 2 ma cena=NaN
+
+    Taki DataFrame **zaktualizuje** ``opis=NULL`` dla id=1 i ``cena=NULL``
+    dla id=2! Jeśli chcesz **pominąć** kolumnę całkowicie, **nie** umieszczaj
+    jej w żadnym dict-ie lub twórz osobne DataFrame dla każdego wiersza::
+
+        # ✓ Bezpieczne — osobne zapisy, różne kolumny
+        writer.write(pd.DataFrame([{"id": 1, "cena": 100}]), "produkty")
+        writer.write(pd.DataFrame([{"id": 2, "opis": "tekst"}]), "produkty")
+
 .. rubric:: Wspierane backendy
 
 PostgreSQL, MSSQL, SQLite.
